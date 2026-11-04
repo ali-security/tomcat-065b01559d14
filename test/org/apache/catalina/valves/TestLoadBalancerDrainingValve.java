@@ -45,7 +45,7 @@ import org.easymock.IMocksControl;
 public class TestLoadBalancerDrainingValve {
 
     @Parameters(name = "{index}: activation[{0}], validSessionID[{1}], expectInvokeNext[{2}], enableIgnore[{3}], " +
-            "queryString[{4}]")
+            "queryString[{4}], requestURI[{7}]")
     public static Collection<Object[]> parameters() {
 
         String[] jkActivations = new String[] { "ACT", "DIS" };
@@ -62,11 +62,29 @@ public class TestLoadBalancerDrainingValve {
                         for (Boolean secureRequest : booleans) {
                             for (Boolean secureSessionConfig : booleans) {
                                 parameterSets.add(new Object[] { jkActivation, validSessionId, expectInvokeNext,
-                                        enableIgnore, queryString, secureRequest, secureSessionConfig });
+                                        enableIgnore, queryString, secureRequest, secureSessionConfig,
+                                        "/test/path", "/test/path" });
                             }
                         }
                     }
                 }
+            }
+        }
+
+        // Request URIs that must not result in a redirect to a different host
+        String[][] redirectURIs = new String[][] {
+                { "//evil.com/path", "/evil.com/path" },
+                { "///evil.com", "/evil.com" },
+                { "////", "/" },
+                { "/;JSESSIONID=cafebabe/evil.com/path", "/evil.com/path" },
+                { "/;JSESSIONID=cafebabe//evil.com/path", "/evil.com/path" },
+                { "//;JSESSIONID=cafebabe//evil.com", "/evil.com" },
+                { "/test;JSESSIONID=cafebabe/path", "/test/path" },
+                { "/test/path;JSESSIONID=cafebabe", "/test/path" } };
+        for (String[] redirectURI : redirectURIs) {
+            for (String queryString : queryStrings) {
+                parameterSets.add(new Object[] { "DIS", Boolean.FALSE, Boolean.FALSE, Boolean.FALSE, queryString,
+                        Boolean.FALSE, Boolean.FALSE, redirectURI[0], redirectURI[1] });
             }
         }
         return parameterSets;
@@ -94,6 +112,12 @@ public class TestLoadBalancerDrainingValve {
     @Parameter(6)
     public boolean secureSessionConfig;
 
+    @Parameter(7)
+    public String requestURI;
+
+    @Parameter(8)
+    public String expectedLocation;
+
 
     @Test
     public void runValve() throws Exception {
@@ -105,7 +129,6 @@ public class TestLoadBalancerDrainingValve {
 
         String sessionCookieName = "JSESSIONID";
         String sessionId = "cafebabe";
-        String requestURI = "/test/path";
         SessionCookieConfig cookieConfig = new CookieConfig();
         cookieConfig.setDomain("example.com");
         cookieConfig.setName(sessionCookieName);
@@ -162,7 +185,7 @@ public class TestLoadBalancerDrainingValve {
                 // These two lines just mean EasyMock.expect(response.addCookie) but for a void method
                 response.addCookie(expectedCookie);
                 EasyMock.expect(ctx.getSessionCookieName()).andReturn(sessionCookieName); // Indirect call
-                String expectedRequestURI = requestURI;
+                String expectedRequestURI = expectedLocation;
                 if (null != queryString) {
                     expectedRequestURI = expectedRequestURI + '?' + queryString;
                 }
